@@ -1,12 +1,15 @@
 package hmiddle
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
 	"strings"
 )
+
+const ApiIdContextKey string = "app_id"
 
 type hmacAuth struct {
 	h    http.Handler
@@ -29,47 +32,50 @@ func (a hmacAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.opts.UnauthorizedHandler = http.HandlerFunc(defaultUnauthorizedHandler)
 	}
 
+	authenticated, api_id := a.authenticate(r)
 	// Check that the provided details match
-	if a.authenticate(r) == false {
+	if !authenticated {
 		a.opts.UnauthorizedHandler.ServeHTTP(w, r)
 		return
 	}
 
+	ctx := context.WithValue(r.Context(), ApiIdContextKey, api_id)
+
 	// Call the next handler on success.
-	a.h.ServeHTTP(w, r)
+	a.h.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // authenticate retrieves and then validates the request.
 // Returns 'false' if the request has not successfully authenticated.
-func (a *hmacAuth) authenticate(r *http.Request) bool {
+func (a *hmacAuth) authenticate(r *http.Request) (bool, string) {
 	if r == nil {
-		return false
+		return false, ""
 	}
 
 	if a.opts.SecretLookupFunc == nil {
-		return false
+		return false, ""
 	}
 
 	// Confirm the request is sending Basic Authentication credentials.
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
-		return false
+		return false, ""
 	}
 
 	creds := strings.SplitN(auth, ":", 2)
 	if len(creds) != 2 {
-		return false
+		return false, ""
 	}
 
 	secret := a.opts.SecretLookupFunc(creds[0])
 	if secret == "" {
-		return false
+		return false, ""
 	}
 
 	// Decode the Authorization header
 	decoded, err := base64.StdEncoding.DecodeString(creds[1])
 	if err != nil {
-		return false
+		return false, ""
 	}
 
 	// TODO: Provide a way to override the message creation. Also, consider including the request body
@@ -80,10 +86,10 @@ func (a *hmacAuth) authenticate(r *http.Request) bool {
 	expectedMAC := mac.Sum(nil)
 
 	if !hmac.Equal(decoded, expectedMAC) {
-		return false
+		return false, ""
 	}
 
-	return true
+	return true, creds[0]
 }
 
 // defaultUnauthorizedHandler provides a default HTTP 401 Unauthorized response.
