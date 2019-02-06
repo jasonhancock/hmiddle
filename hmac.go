@@ -9,30 +9,22 @@ import (
 )
 
 type hmacAuth struct {
-	h    http.Handler
-	opts AuthOptions
+	h                http.Handler
+	secretLookupFunc SecretLookupFunction
+	unauthHandler    http.Handler
 }
 
-// AuthOptions stores the configuration for HMAC Authentication
-//
-// A http.Handler may also be passed to UnauthorizedHandler to override the
-// default error handler if you wish to serve a custom template/response.
-type AuthOptions struct {
-	SecretLookupFunc    func(key string) string
-	UnauthorizedHandler http.Handler
-}
+// SecretLookupFunction takes the public key id string and uses it to look up the
+// secret key. An empty string should be returned if the secret key cannot be
+// found for any reason.
+type SecretLookupFunction func(key string) string
 
 // Satisfies the http.Handler interface for hmacAuth.
 func (a hmacAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Check if we have a user-provided error handler, else set a default
-	if a.opts.UnauthorizedHandler == nil {
-		a.opts.UnauthorizedHandler = http.HandlerFunc(defaultUnauthorizedHandler)
-	}
-
 	authenticated, apiID := a.authenticate(r)
 	// Check that the provided details match
 	if !authenticated {
-		a.opts.UnauthorizedHandler.ServeHTTP(w, r)
+		a.unauthHandler.ServeHTTP(w, r)
 		return
 	}
 
@@ -46,7 +38,7 @@ func (a *hmacAuth) authenticate(r *http.Request) (bool, string) {
 		return false, ""
 	}
 
-	if a.opts.SecretLookupFunc == nil {
+	if a.secretLookupFunc == nil {
 		return false, ""
 	}
 
@@ -61,7 +53,7 @@ func (a *hmacAuth) authenticate(r *http.Request) (bool, string) {
 		return false, ""
 	}
 
-	secret := a.opts.SecretLookupFunc(creds[0])
+	secret := a.secretLookupFunc(creds[0])
 	if secret == "" {
 		return false, ""
 	}
@@ -92,8 +84,20 @@ func defaultUnauthorizedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // HMACAuth returns an http middleware function that provides HMAC authentication
-func HMACAuth(o AuthOptions) func(http.Handler) http.Handler {
+func HMACAuth(opts ...Option) func(http.Handler) http.Handler {
+	o := &options{
+		unauthHandler: http.HandlerFunc(defaultUnauthorizedHandler),
+	}
+
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	return func(h http.Handler) http.Handler {
-		return hmacAuth{h, o}
+		return hmacAuth{
+			h:                h,
+			secretLookupFunc: o.secretLookupFunc,
+			unauthHandler:    o.unauthHandler,
+		}
 	}
 }

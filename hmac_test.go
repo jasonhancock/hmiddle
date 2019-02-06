@@ -23,16 +23,16 @@ func TestHMACAuthenticateWithFunc(t *testing.T) {
 		Header: make(http.Header),
 	}
 
-	authOpts := AuthOptions{
-		SecretLookupFunc: func(k string) string {
-			if k == apiID {
-				return apiSecret
-			}
-			return ""
-		},
+	secretFunc := func(k string) string {
+		if k == apiID {
+			return apiSecret
+		}
+		return ""
 	}
 
-	a := &hmacAuth{opts: authOpts}
+	a := &hmacAuth{
+		secretLookupFunc: secretFunc,
+	}
 
 	t.Run("nil request", func(t *testing.T) {
 		is := is.New(t)
@@ -97,7 +97,7 @@ func TestHMACAuthenticateWithFunc(t *testing.T) {
 
 	t.Run("without lookup func", func(t *testing.T) {
 		is := is.New(t)
-		a.opts.SecretLookupFunc = nil
+		a.secretLookupFunc = nil
 		r.Header.Set("Authorization", apiID+":"+genSig(apiSecret))
 		res, id := a.authenticate(r)
 		is.False(res)
