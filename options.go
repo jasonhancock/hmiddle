@@ -4,6 +4,7 @@ import "net/http"
 
 type options struct {
 	secretLookupFunc SecretLookupFunction
+	msgContentFunc   MessageContentFunction
 	unauthHandler    http.Handler
 	header           string
 }
@@ -15,6 +16,14 @@ type Option func(*options)
 func WithSecretLookupFunction(fn SecretLookupFunction) Option {
 	return func(o *options) {
 		o.secretLookupFunc = fn
+	}
+}
+
+// WithMessageContentFunction sets up the function to use to inspect the request
+// and generate the message content (the content that will be signed)
+func WithMessageContentFunction(fn MessageContentFunction) Option {
+	return func(o *options) {
+		o.msgContentFunc = fn
 	}
 }
 

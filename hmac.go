@@ -1,9 +1,11 @@
 package hmiddle
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"io/ioutil"
 	"net/http"
 	"strings"
 )
@@ -11,6 +13,7 @@ import (
 type hmacAuth struct {
 	h                http.Handler
 	secretLookupFunc SecretLookupFunction
+	msgContentFunc   MessageContentFunction
 	unauthHandler    http.Handler
 	header           string
 }
@@ -19,6 +22,12 @@ type hmacAuth struct {
 // secret key. An empty string should be returned if the secret key cannot be
 // found for any reason.
 type SecretLookupFunction func(key string) string
+
+// MessageContentFunction is a function that will return the payload content that
+// is used to compute the signature. If you read the request's body in your
+// function, you are responsible for closing the original Body and creating a new
+// Body with the content from the original Body
+type MessageContentFunction func(r *http.Request) string
 
 // Satisfies the http.Handler interface for hmacAuth.
 func (a hmacAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -65,18 +74,31 @@ func (a *hmacAuth) authenticate(r *http.Request) (bool, string) {
 		return false, ""
 	}
 
-	// TODO: Provide a way to override the message creation. Also, consider including the request body
-	// in the message.
-	message := r.Method + r.URL.String()
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(message))
-	expectedMAC := mac.Sum(nil)
+	mac.Write([]byte(a.msgContentFunc(r)))
 
-	if !hmac.Equal(decoded, expectedMAC) {
+	if !hmac.Equal(decoded, mac.Sum(nil)) {
 		return false, ""
 	}
 
 	return true, creds[0]
+}
+
+//MessageContentMethodURL is a MessageContentFunction that returns the request's
+// method and url concatenated together as the message content. This is the default
+// MessageContentFunction
+func MessageContentMethodURL(r *http.Request) string {
+	return r.Method + r.URL.String()
+}
+
+// MessageContentMethodURLBody is a MessageContentFunction that returns the
+// request's method, url, and body concatenated together as the message content.
+// The body is separated from the method and url by a newline
+func MessageContentMethodURLBody(r *http.Request) string {
+	body, _ := ioutil.ReadAll(r.Body)
+	r.Body.Close()
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+	return r.Method + r.URL.String() + "\n" + string(body)
 }
 
 // defaultUnauthorizedHandler provides a default HTTP 401 Unauthorized response.
@@ -87,8 +109,9 @@ func defaultUnauthorizedHandler(w http.ResponseWriter, r *http.Request) {
 // HMACAuth returns an http middleware function that provides HMAC authentication
 func HMACAuth(opts ...Option) func(http.Handler) http.Handler {
 	o := &options{
-		unauthHandler: http.HandlerFunc(defaultUnauthorizedHandler),
-		header:        "Authorization",
+		unauthHandler:  http.HandlerFunc(defaultUnauthorizedHandler),
+		header:         "Authorization",
+		msgContentFunc: MessageContentMethodURL,
 	}
 
 	for _, opt := range opts {
@@ -101,6 +124,7 @@ func HMACAuth(opts ...Option) func(http.Handler) http.Handler {
 			secretLookupFunc: o.secretLookupFunc,
 			unauthHandler:    o.unauthHandler,
 			header:           o.header,
+			msgContentFunc:   o.msgContentFunc,
 		}
 	}
 }

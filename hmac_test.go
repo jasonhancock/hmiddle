@@ -1,15 +1,45 @@
 package hmiddle
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/cheekybits/is"
 )
+
+func TestMessageContent(t *testing.T) {
+	bodyContent := "hello world"
+	r := &http.Request{
+		Body:   ioutil.NopCloser(bytes.NewBufferString(bodyContent)),
+		Method: http.MethodPost,
+		URL: &url.URL{
+			Scheme: "https",
+			Host:   "example.com",
+			Path:   "/some/path",
+		},
+	}
+
+	t.Run("MessageContentMethodURL", func(t *testing.T) {
+		is := is.New(t)
+		is.Equal(MessageContentMethodURL(r), "POSThttps://example.com/some/path")
+	})
+
+	t.Run("MessageContentMethodURLBody", func(t *testing.T) {
+		is := is.New(t)
+		is.Equal(MessageContentMethodURLBody(r), "POSThttps://example.com/some/path\nhello world")
+
+		// verify the body is still readable
+		b, err := ioutil.ReadAll(r.Body)
+		is.NoErr(err)
+		is.Equal(string(b), bodyContent)
+	})
+}
 
 func TestHMACAuthenticateWithFunc(t *testing.T) {
 	apiID := "apikey123"
@@ -33,6 +63,7 @@ func TestHMACAuthenticateWithFunc(t *testing.T) {
 	a := &hmacAuth{
 		secretLookupFunc: secretFunc,
 		header:           "Authorization",
+		msgContentFunc:   MessageContentMethodURL,
 	}
 
 	t.Run("nil request", func(t *testing.T) {
