@@ -1,15 +1,12 @@
 package hmiddle
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
 	"strings"
 )
-
-const ApiIdContextKey string = "app_id"
 
 type hmacAuth struct {
 	h    http.Handler
@@ -32,17 +29,14 @@ func (a hmacAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.opts.UnauthorizedHandler = http.HandlerFunc(defaultUnauthorizedHandler)
 	}
 
-	authenticated, api_id := a.authenticate(r)
+	authenticated, apiID := a.authenticate(r)
 	// Check that the provided details match
 	if !authenticated {
 		a.opts.UnauthorizedHandler.ServeHTTP(w, r)
 		return
 	}
 
-	ctx := context.WithValue(r.Context(), ApiIdContextKey, api_id)
-
-	// Call the next handler on success.
-	a.h.ServeHTTP(w, r.WithContext(ctx))
+	a.h.ServeHTTP(w, r.WithContext(NewContext(r.Context(), apiID)))
 }
 
 // authenticate retrieves and then validates the request.
@@ -97,9 +91,9 @@ func defaultUnauthorizedHandler(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 }
 
+// HMACAuth returns an http middleware function that provides HMAC authentication
 func HMACAuth(o AuthOptions) func(http.Handler) http.Handler {
-	fn := func(h http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
 		return hmacAuth{h, o}
 	}
-	return fn
 }
