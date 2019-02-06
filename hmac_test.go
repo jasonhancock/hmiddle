@@ -32,6 +32,7 @@ func TestHMACAuthenticateWithFunc(t *testing.T) {
 
 	a := &hmacAuth{
 		secretLookupFunc: secretFunc,
+		header:           "Authorization",
 	}
 
 	t.Run("nil request", func(t *testing.T) {
@@ -71,6 +72,24 @@ func TestHMACAuthenticateWithFunc(t *testing.T) {
 	t.Run("correct credentials", func(t *testing.T) {
 		is := is.New(t)
 		r.Header.Set("Authorization", apiID+":"+genSig(apiSecret))
+
+		// Test correct credentials
+		res, id := a.authenticate(r)
+		is.True(res)
+		is.Equal(id, apiID)
+	})
+
+	t.Run("correct credentials non-default header", func(t *testing.T) {
+		is := is.New(t)
+		headerSave := a.header
+		a.header = "X-Signature"
+		defer func() {
+			r.Header.Del(a.header)
+			a.header = headerSave
+		}()
+
+		r.Header.Del(headerSave)
+		r.Header.Set(a.header, apiID+":"+genSig(apiSecret))
 
 		// Test correct credentials
 		res, id := a.authenticate(r)

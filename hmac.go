@@ -12,6 +12,7 @@ type hmacAuth struct {
 	h                http.Handler
 	secretLookupFunc SecretLookupFunction
 	unauthHandler    http.Handler
+	header           string
 }
 
 // SecretLookupFunction takes the public key id string and uses it to look up the
@@ -42,8 +43,8 @@ func (a *hmacAuth) authenticate(r *http.Request) (bool, string) {
 		return false, ""
 	}
 
-	// Confirm the request is sending Basic Authentication credentials.
-	auth := r.Header.Get("Authorization")
+	// Confirm the request is sending the header
+	auth := r.Header.Get(a.header)
 	if auth == "" {
 		return false, ""
 	}
@@ -58,7 +59,7 @@ func (a *hmacAuth) authenticate(r *http.Request) (bool, string) {
 		return false, ""
 	}
 
-	// Decode the Authorization header
+	// Decode the signature header
 	decoded, err := base64.StdEncoding.DecodeString(creds[1])
 	if err != nil {
 		return false, ""
@@ -87,6 +88,7 @@ func defaultUnauthorizedHandler(w http.ResponseWriter, r *http.Request) {
 func HMACAuth(opts ...Option) func(http.Handler) http.Handler {
 	o := &options{
 		unauthHandler: http.HandlerFunc(defaultUnauthorizedHandler),
+		header:        "Authorization",
 	}
 
 	for _, opt := range opts {
@@ -98,6 +100,7 @@ func HMACAuth(opts ...Option) func(http.Handler) http.Handler {
 			h:                h,
 			secretLookupFunc: o.secretLookupFunc,
 			unauthHandler:    o.unauthHandler,
+			header:           o.header,
 		}
 	}
 }
